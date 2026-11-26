@@ -253,6 +253,8 @@ pub fn launch(override_dir: Option<&str>) -> Result<(), String> {
         return Err("T3 Code launcher is missing".to_owned());
     }
     Command::new(&launcher)
+        .arg("--ozone-platform=wayland")
+        .env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
