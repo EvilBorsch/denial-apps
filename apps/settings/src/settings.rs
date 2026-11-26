@@ -33,6 +33,7 @@ mod scales;
 mod power;
 mod shortcuts;
 mod system;
+mod t3code;
 mod wallpapers;
 mod welcome;
 
@@ -686,6 +687,7 @@ pub struct Settings {
     wallpapers: Wallpapers,
     bluetooth: Bluetooth,
     android: android::Android,
+    t3code: t3code::T3Code,
     /// The monitor beside the phone, read every few seconds; None without
     /// one.
     monitor: Option<denial::Monitor>,
@@ -971,6 +973,7 @@ impl Settings {
             _unlocking: Task::ready(()),
             bluetooth: Bluetooth::default(),
             android: android::Android::default(),
+            t3code: t3code::T3Code::default(),
             monitor: None,
             _monitor: cx.spawn_in(window, async move |this, cx| {
                 Self::follow_monitor(this, cx).await
@@ -1201,6 +1204,7 @@ impl Settings {
         self.follow_traffic(cx);
         self.follow_flow(cx);
         self.follow_android(cx);
+        self.follow_t3code(cx);
         if self.screen.is_page("storage") {
             self.read_storage(cx);
         }
@@ -1566,6 +1570,7 @@ impl Settings {
                 Content::Storage => self.storage_page(),
                 Content::Apps(sections) => self.apps_page(sections, layer, cx),
                 Content::Android(sections) => self.android_page(sections, layer, cx),
+                Content::T3Code(sections) => self.t3code_page(sections, layer, cx),
                 Content::Monitor(sections) => self.monitor_page(sections, layer, cx),
                 Content::Hidden(_) | Content::Unavailable => Vec::new(),
             },

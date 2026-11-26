@@ -63,6 +63,8 @@ pub enum Content {
     /// Android through Droidloom: the switch in sections, then how it runs
     /// and its apps.
     Android(&'static [Section]),
+    /// T3 Code system integration: install/update, harness & model, voice.
+    T3Code(&'static [Section]),
     /// The monitor beside the phone: its scale, then settings in sections.
     /// Listed only while one is plugged in.
     Monitor(&'static [Section]),
@@ -1081,6 +1083,30 @@ pub static GROUPS: &[Group] = &[
                 .from(Source::Own)])]),
             },
             Page {
+                id: "t3code",
+                title: "T3 Code",
+                icon: Icon::Code,
+                summary: "Voice AI, Dynamic Island, EvilBorsch/t3code",
+                content: Content::T3Code(&[lead(&[
+                    item(
+                        "t3code.enabled",
+                        "T3 Code in system",
+                        Kind::Toggle(true),
+                    )
+                    .detail("Dynamic Island bubble, taskbar mic and AI search button")
+                    .icon(Icon::Code)
+                    .denial("t3Code.enabled"),
+                    item(
+                        "t3code.volumedown",
+                        "Double-press Volume Down",
+                        Kind::Toggle(true),
+                    )
+                    .detail("Start or send a GigaAM voice prompt while screen is awake")
+                    .icon(Icon::Speaker)
+                    .denial("t3Code.volumeDownDoublePress"),
+                ])]),
+            },
+            Page {
                 id: "language",
                 title: "Language and keyboard",
                 icon: Icon::Language,
@@ -1323,6 +1349,7 @@ pub fn items() -> impl Iterator<Item = (&'static Page, &'static Section, &'stati
             Content::Settings(sections)
             | Content::Apps(sections)
             | Content::Android(sections)
+            | Content::T3Code(sections)
             | Content::Monitor(sections) => sections,
             Content::OutputConfiguration => INPUT_DECK_CONTROLS,
             Content::Wifi

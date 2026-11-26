@@ -903,6 +903,22 @@ pub static RUSSIAN: &[(&str, &str)] = &[
         "Live UI development, builds, recovery",
         "Разработка интерфейса на лету, сборки, восстановление",
     ),
+    // T3 Code.
+    ("T3 Code", "T3 Code"),
+    (
+        "Voice AI, Dynamic Island, EvilBorsch/t3code",
+        "Голосовой ИИ, динамический пузырёк, EvilBorsch/t3code",
+    ),
+    ("T3 Code in system", "T3 Code в системе"),
+    (
+        "Dynamic Island bubble, taskbar mic and AI search button",
+        "Динамический пузырёк, микрофон в панели и кнопка AI в поиске",
+    ),
+    ("Double-press Volume Down", "Двойное нажатие Громкость−"),
+    (
+        "Start or send a GigaAM voice prompt while screen is awake",
+        "Запись и отправка голосового запроса GigaAM при включённом экране",
+    ),
 ];
 
 #[cfg(test)]

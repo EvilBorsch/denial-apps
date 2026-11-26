@@ -1550,6 +1550,19 @@ pub static CHINESE: &[(&str, &str)] = &[
         "Select a Flutter project containing pubspec.yaml and lib/main.dart. Source changes can replace any shell UI that does not require a new native protocol.",
         "选择包含 pubspec.yaml 和 lib/main.dart 的 Flutter 项目。源代码更改可以替换不需要新原生协议的任何 Shell UI。",
     ),
+    // T3 Code.
+    ("T3 Code", "T3 Code"),
+    ("Voice AI, Dynamic Island, EvilBorsch/t3code", "语音 AI、灵动岛、EvilBorsch/t3code"),
+    ("T3 Code in system", "系统集成 T3 Code"),
+    (
+        "Dynamic Island bubble, taskbar mic and AI search button",
+        "灵动岛气泡、任务栏麦克风与搜索 AI 按钮",
+    ),
+    ("Double-press Volume Down", "双击音量减"),
+    (
+        "Start or send a GigaAM voice prompt while screen is awake",
+        "亮屏时开始或发送 GigaAM 语音请求",
+    ),
 ];
 
 #[cfg(test)]

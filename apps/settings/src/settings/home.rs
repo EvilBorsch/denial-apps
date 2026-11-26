@@ -54,6 +54,7 @@ impl Settings {
                         Content::Plugins => self.plugins_summary(),
                         Content::Developer => self.developer_summary(),
                         Content::Android(_) => Some(self.android_summary()),
+                        Content::T3Code(_) => self.t3code_summary(),
                         Content::Monitor(_) => self.monitor_summary(),
                         Content::Settings(_)
                         | Content::Apps(_)

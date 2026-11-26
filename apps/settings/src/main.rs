@@ -23,6 +23,7 @@ mod name;
 mod plugins;
 mod props;
 mod settings;
+mod t3code;
 mod values;
 mod wallhaven;
 mod wallpaper;
