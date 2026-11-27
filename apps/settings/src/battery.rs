@@ -3,8 +3,16 @@
 //! signals. Only batteries that report how much energy they hold when full
 //! count: a firmware battery that reports a level and nothing else (the Ace
 //! 3's battery manager says 50% and charging, always) is left out.
+//!
+//! Whether a battery can hold its charge with the charger attached, and
+//! does, is read from its `charge_behaviour` in sysfs with each reading:
+//! UPower does not carry it. Settings writes it where the system lets the
+//! session do so (Phonewave's udev rule on a phone); elsewhere the switch
+//! does not show.
 
 use std::collections::HashMap;
+use std::ffi::CString;
+use std::os::unix::ffi::OsStrExt;
 use std::time::Duration;
 
 use async_channel::Sender;
@@ -19,6 +27,7 @@ const DEVICE: &str = "org.freedesktop.UPower.Device";
 /// A burst of changes is read once, this long after the first.
 const SETTLE: Duration = Duration::from_millis(150);
 const RETRY: Duration = Duration::from_secs(2);
+const SUPPLIES: &str = "/sys/class/power_supply";
 
 /// UPower's device types and states.
 const LINE_POWER: u32 = 1;
@@ -64,6 +73,15 @@ pub struct ChargeLimit {
     pub firmware_optimized: bool,
 }
 
+/// A battery whose driver can hold its charge with the charger attached:
+/// the device then runs from the charger and the battery is left as it is.
+#[derive(Clone, Debug)]
+pub struct ChargeHold {
+    /// Its name under `/sys/class/power_supply`.
+    pub supply: String,
+    pub held: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct State {
     /// None on mains power only.
@@ -71,6 +89,7 @@ pub struct State {
     /// Whether a charger is connected.
     pub plugged: bool,
     pub charge_limits: Vec<ChargeLimit>,
+    pub charge_holds: Vec<ChargeHold>,
 }
 
 /// One UPower device's properties.
@@ -226,7 +245,70 @@ async fn read(bus: &Connection) -> zbus::Result<State> {
         battery: battery(&devices),
         plugged,
         charge_limits: devices.iter().filter_map(Device::charge_limit).collect(),
+        charge_holds: charge_holds(),
     })
+}
+
+/// The batteries that can hold their charge and that this session may
+/// switch, by name.
+fn charge_holds() -> Vec<ChargeHold> {
+    let Ok(entries) = std::fs::read_dir(SUPPLIES) else {
+        return Vec::new();
+    };
+    let mut holds: Vec<ChargeHold> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let folder = entry.path();
+            let kind = std::fs::read_to_string(folder.join("type")).ok()?;
+            if kind.trim() != "Battery" {
+                return None;
+            }
+            let file = folder.join("charge_behaviour");
+            let behaviour = std::fs::read_to_string(&file).ok()?;
+            if !writable(&file) {
+                return None;
+            }
+            Some(ChargeHold {
+                supply: entry.file_name().into_string().ok()?,
+                held: holding(&behaviour)?,
+            })
+        })
+        .collect();
+    holds.sort_by(|a, b| a.supply.cmp(&b.supply));
+    holds
+}
+
+/// From a `charge_behaviour` such as `auto [inhibit-charge]`: whether the
+/// charge is held, or None when holding it is not offered.
+fn holding(behaviour: &str) -> Option<bool> {
+    let mut offered = false;
+    let mut chosen = None;
+    for each in behaviour.split_whitespace() {
+        let name = each.trim_matches(['[', ']']);
+        if name == "inhibit-charge" {
+            offered = true;
+        }
+        if each.starts_with('[') {
+            chosen = Some(name);
+        }
+    }
+    offered.then_some(chosen == Some("inhibit-charge"))
+}
+
+/// Whether this process may write a file.
+fn writable(file: &std::path::Path) -> bool {
+    CString::new(file.as_os_str().as_bytes())
+        .is_ok_and(|path| unsafe { libc::access(path.as_ptr(), libc::W_OK) } == 0)
+}
+
+/// Holds a battery's charge or lets it charge.
+pub fn set_charge_hold(supply: &str, held: bool) -> Result<(), String> {
+    if supply.is_empty() || supply.starts_with('.') || supply.contains('/') {
+        return Err(format!("{supply} is not a power supply"));
+    }
+    let file = std::path::Path::new(SUPPLIES).join(supply).join("charge_behaviour");
+    std::fs::write(&file, if held { "inhibit-charge" } else { "auto" })
+        .map_err(|error| error.to_string())
 }
 
 pub async fn set_charge_limit(path: &OwnedObjectPath, enabled: bool) -> zbus::Result<()> {
@@ -351,4 +433,14 @@ fn charge_limits_only_use_supported_levels_on_present_system_batteries() {
         .properties
         .insert("IsPresent".into(), OwnedValue::from(false));
     assert!(device.charge_limit().is_none());
+}
+
+#[cfg(test)]
+#[test]
+fn a_hold_is_read_from_the_charge_behaviour() {
+    assert_eq!(holding("[auto] inhibit-charge"), Some(false));
+    assert_eq!(holding("auto [inhibit-charge]"), Some(true));
+    assert_eq!(holding("auto inhibit-charge [force-discharge]"), Some(false));
+    assert_eq!(holding("[auto] force-discharge"), None);
+    assert_eq!(holding(""), None);
 }
