@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::{Dialog, Layer, Screen, Settings};
 use crate::catalog::{self, ACCENTS, Item, Kind, LOCK_DELAYS, SliderUnit, Source};
+use crate::country;
 use crate::denial::{self, Refusal};
 use crate::fingerprint::{self, Opened};
 use crate::lock::{self, Outcome};
@@ -53,7 +54,8 @@ impl Settings {
                 .map_or(start, |value| {
                     ((value as f32 - low) / (high - low)).clamp(0.0, 1.0)
                 }),
-            Source::Volume | Source::SameAsVolume => self.denial.volume.unwrap_or(0.0),
+            Source::Volume => self.denial.volume.unwrap_or(0.0),
+            Source::CallVolume => self.call_volume.level().unwrap_or(0.0),
             Source::Made => self.values.level(item),
             _ => start,
         }
@@ -94,6 +96,12 @@ impl Settings {
     /// Whether a row shows now: some only go with one option of another,
     /// or with a toggle off (0) or on (1).
     pub(super) fn applies(&self, item: &Item) -> bool {
+        if matches!(item.source, Source::CallVolume) {
+            return self.call_volume.level().is_some();
+        }
+        if item.key == "time.country" {
+            return country::available();
+        }
         // The editor is hosted by the mobile shell. Window size alone
         // also matches large desktop windows, whose shell ignores the action.
         if item.key == "style.lockLayout" {
@@ -147,10 +155,6 @@ impl Settings {
 
     /// What a choice, or a row that opens a screen, shows under its title.
     pub(super) fn shown(&self, item: &Item) -> SharedString {
-        if item.key == "style.cursorTheme" {
-            let selected = self.current_cursor();
-            return if selected == crate::cursor_theme::DEFAULT { "Bibata Modern Ice".into() } else { "Imported theme".into() };
-        }
         if item.key == "style.customAccent" {
             let argb = self.kept("appearance.customAccentColor").and_then(Value::as_u64).unwrap_or(0xFF6B3F73);
             return format!("#{:06X}", argb & 0xFFFFFF).into();
@@ -238,7 +242,8 @@ impl Settings {
         done: bool,
         cx: &mut Context<Self>,
     ) {
-        let level = (level.clamp(0.0, 1.0) * 100.0).round() / 100.0;
+        let fraction = level.clamp(0.0, 1.0);
+        let level = (fraction * 100.0).round() / 100.0;
         match item.source {
             Source::Range(path, low, high) => {
                 let value = low + level * (high - low);
@@ -256,6 +261,7 @@ impl Settings {
                 }
             }
             Source::Volume => self.set_volume(level, cx),
+            Source::CallVolume => self.set_call_volume(fraction, cx),
             Source::Made => {
                 self.values.set_unsaved(item, level);
                 if done {
@@ -400,7 +406,8 @@ impl Settings {
                 denial::put(document, "appearance", json!({
                     "colorSchemePreference": "preferDark",
                     "accentSource": "custom", "customAccentColor": 0xFF6B3F73_u32,
-                    "fontFamily": "", "cornerRadiusScale": 0.5, "monitorCornerRadiusScale": 0.5,
+                    "fontFamily": "",
+                    "windowCornerRadiusScale": 0.5, "interfaceCornerRadiusScale": 1.2,
                     "panelOpacity": 0.5, "cardOpacity": 0.4421052631578947,
                     "transparencyMode": "glass", "backdropBlurLevel": "good",
                     "backdropBlurOpacityThreshold": 0.19, "glass": {},
@@ -438,8 +445,6 @@ impl Settings {
                 window.focus(&self.output_field.focus_handle(cx), cx);
             }
             Kind::Action(_) if item.key == "style.cursorImport" => self.import_cursor(cx),
-            Kind::Opens if item.key == "style.cursorTheme" => self.choose_cursor(false, cx),
-            Kind::Opens if item.key == "style.cursorRemove" => self.choose_cursor(true, cx),
             Kind::Action(said) => self.note(said, cx),
             Kind::Opens if item.key.starts_with("power.") => self.choose_idle_power(item, cx),
             Kind::Opens if item.key == "style.font" => self.choose_font(cx),
@@ -653,7 +658,8 @@ impl Settings {
         }
         self.reading_volume = Some(cx.spawn(async move |this, cx| {
             loop {
-                let Ok((link, revision)) = this.update(cx, |view, _| {
+                let Ok((link, revision)) = this.update(cx, |view, cx| {
+                    view.read_call_volume(cx);
                     (view.denial.link.clone(), view.denial.audio_stream_revision)
                 }) else {
                     return;

@@ -465,7 +465,8 @@ fn link() -> Option<PathBuf> {
 }
 
 pub fn installed() -> bool {
-    std::path::Path::new(INSTALLED).exists()
+    static INSTALLED_NOW: crate::presence::Presence = crate::presence::Presence::new(INSTALLED);
+    INSTALLED_NOW.get()
 }
 
 /// Whether Droidloom starts with the session.

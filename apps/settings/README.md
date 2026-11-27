@@ -161,9 +161,10 @@ clocks follow. The page reads timedated again every second while it shows.
 The country or region on the same page is the one whose rules the Wi-Fi
 radios follow (`src/country.rs`): wireless-regdb's
 `/etc/conf.d/wireless-regdom`, which its udev rule applies whenever the Wi-Fi
-stack loads. The `wifi-country` helper (`src/bin/wifi-country.rs`) writes it
-and applies it at once with `iw`; Settings runs it through pkexec, under the
-polkit action in `packaging/`. The list is every country the regulatory
+stack loads. The system's `wifi-country` helper writes it and applies it at
+once with `iw`; Settings runs it through pkexec. Phonewave's system package
+has it at `/usr/lib/phonewave-system/wifi-country`; on a machine without it
+the country is the system's business and the row does not show. The list is every country the regulatory
 database knows, in English and Chinese, searchable by name or code;
 `tools/countries.py` writes it from wireless-regdb and iso-codes. The time
 zone's country comes first, and picking a time zone while no country is set
@@ -221,10 +222,9 @@ and rate through `outputs.apply` and ask to keep them, as the panel's refresh
 rate does; rates of its current resolution that round to the same hertz show
 once. Android apps
 sets the monitor's own size in Droidloom's density file (`outputs`, by
-connector); without one it takes every screen's. Windows, Roundness and Wallpaper
-are Denial's `layout.windowLayout` and `appearance.monitorCornerRadiusScale`
-and the monitor's entries in the shell's wallpaper file (`outputs`,
-`outputAlignments`, `outputZooms`).
+connector); without one it takes every screen's. Windows and Wallpaper
+are Denial's `layout.windowLayout` and the monitor's entries in the shell's
+wallpaper file (`outputs`, `outputAlignments`, `outputZooms`).
 
 Accessibility and Updates are kept in the catalog but not listed.
 
@@ -243,9 +243,10 @@ where its value lives (`src/settings/bound.rs`):
   the accent, the material and what it takes (glass opacities and frost,
   or blur quality and panel and card opacity), roundness and the lock
   screen's clock and wallpaper.
-- The media volume, through Denial's `audio.get` and `audio.set`, read again
-  every second while the Sound page shows. Ring and Alarms show the same
-  level, faint: the phone has one volume for now.
+- Media volume controls apps, ringtones, alarms and other playback through
+  Denial's `audio.get` and `audio.set`. Phones with a modem call playback
+  control also show In-call volume. It sets the hardware level through
+  Phonewave's `org.callaudio.CallAudio1.Volume`, during or between calls.
 - The screen lock: PIN or password, through `deniald --lock-pin` (the
   compositor that started Settings names itself in
   `DENIAL_COMPOSITOR_BINARY`). A new PIN has 6 digits, typed twice. The

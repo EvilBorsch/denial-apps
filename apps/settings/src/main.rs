@@ -16,11 +16,13 @@ mod flow;
 mod glibc;
 mod instance;
 mod language;
+mod lights;
 mod location;
 mod lock;
 mod mobile;
 mod name;
 mod plugins;
+mod presence;
 mod props;
 mod settings;
 mod t3code;
@@ -44,6 +46,14 @@ use crate::instance::{InstanceProxy, Open, Opener};
 use crate::settings::{Back, Settings};
 
 fn main() {
+    // Two malloc arenas, before any thread starts. glibc gives each of
+    // Settings' two dozen threads an arena of its own, and where the kernel
+    // backs memory with huge pages each arena holds 2 MiB: on the phones
+    // that was half of Settings' memory.
+    // SAFETY: mallopt only sets an allocator parameter.
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 2);
+    }
     diagnostics::init();
     log::info!("starting Settings");
     denial_look::words::register_chinese(words::CHINESE);
@@ -73,6 +83,7 @@ fn main() {
     application()
         .with_assets(denial_look_gpui::Assets)
         .run(move |cx: &mut App| {
+            denial_look_gpui::zoom_app();
             denial_look_gpui::input::bind_keys(cx);
             // Denial's Back gesture arrives as KEY_BACK, which GPUI names `back`.
             cx.bind_keys([
@@ -101,7 +112,7 @@ fn main() {
                         app_id: Some(name.into()),
                         ..Default::default()
                     },
-                    |window, cx| cx.new(|cx| Settings::new(page, welcome, window, cx)),
+                    |window, cx| cx.new(|cx| Settings::new(page, welcome, bus, window, cx)),
                 )
                 .unwrap();
             log::info!("Settings window opened");
@@ -111,7 +122,6 @@ fn main() {
                 })
                 .unwrap();
             cx.spawn(async move |cx| {
-                let _bus = bus;
                 while let Ok((page, token)) = opens.recv().await {
                     let shown = window.update(cx, |view, window, cx| {
                         if !page.is_empty() {

@@ -8,6 +8,7 @@
 mod android;
 mod bound;
 mod cellular;
+mod call_volume;
 mod developer;
 mod devices;
 mod display_controls;
@@ -18,6 +19,7 @@ mod environment;
 mod home;
 mod input;
 mod idle_power;
+mod lights;
 mod monitor;
 mod networks;
 mod output_modes;
@@ -549,6 +551,8 @@ struct Power {
     /// None while UPower does not run.
     state: Option<battery::State>,
     changing_limits: HashSet<zbus::zvariant::OwnedObjectPath>,
+    /// Batteries whose bypass charging is being changed, by supply name.
+    changing_holds: HashSet<String>,
     /// Whether UPower has been read, or found missing, once.
     read: bool,
     /// What the charger delivers and the battery takes, while Battery shows.
@@ -624,9 +628,14 @@ pub struct Settings {
     /// The first-start tour, when this is Welcome and not Settings.
     welcome: Option<welcome::Welcome>,
     expanded_sections: HashSet<&'static str>,
+    cursors: cursor::Cursors,
     /// Rows are being made for the panel inside an opened card: their
     /// corners follow the panel's, not an island's.
     nested: std::cell::Cell<bool>,
+    /// When each element `appearing` builds was first built, by id: kept
+    /// while every render builds it, so a fade plays once however the
+    /// element is drawn. Ids a render left out are forgotten after it.
+    appeared: std::cell::RefCell<Appeared>,
     /// The home screen's top group leaves as the pages scroll on, and comes
     /// back as they scroll back.
     top_away: ScrollAway,
@@ -672,6 +681,8 @@ pub struct Settings {
     mobile: Mobile,
     location: Location,
     power: Power,
+    /// The device's own lights, read once: they are part of it.
+    lights: Vec<crate::lights::Light>,
     denial: Denial,
     display_controls: display_controls::DisplayControls,
     output_modes: output_modes::OutputModes,
@@ -710,6 +721,7 @@ pub struct Settings {
     reading_panel: Option<Task<()>>,
     /// Reading the volume again every second, while the Sound page shows.
     reading_volume: Option<Task<()>>,
+    call_volume: call_volume::State,
     /// Reading the clock again every second, while Date and time shows.
     reading_clock: Option<Task<()>>,
     /// Reading the data link's traffic every two seconds, while Mobile
@@ -741,6 +753,7 @@ impl Settings {
     pub fn new(
         page: Option<String>,
         welcome: bool,
+        bus: Option<zbus::Connection>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -898,7 +911,9 @@ impl Settings {
             shortcuts: shortcuts::Shortcuts::default(),
             welcome: welcome.then(welcome::Welcome::default),
             expanded_sections: HashSet::new(),
+            cursors: cursor::Cursors::default(),
             nested: std::cell::Cell::new(false),
+            appeared: Default::default(),
             top_away: ScrollAway::default(),
             scrolls: HashMap::new(),
             dialog: None,
@@ -930,6 +945,11 @@ impl Settings {
             location: Location::default(),
             _location: cx.spawn(async move |this, cx| Self::follow_location(this, cx).await),
             power: Power::default(),
+            lights: {
+                let lights = crate::lights::lights();
+                catalog::set_lights(!lights.is_empty());
+                lights
+            },
             _power: cx.spawn(async move |this, cx| Self::follow_power(this, cx).await),
             denial: Denial {
                 link: denial::Link::new(),
@@ -966,6 +986,7 @@ impl Settings {
             _display: cx.spawn(async move |this, cx| Self::follow_display(this, cx).await),
             reading_panel: None,
             reading_volume: None,
+            call_volume: call_volume::State::new(bus),
             reading_clock: None,
             country: country::read(),
             reading_mobile: None,
@@ -989,6 +1010,9 @@ impl Settings {
             scanning: None,
             _subscriptions: subscriptions,
         };
+        if !welcome && !settings.screen.is_page("sound") {
+            settings.read_call_volume(cx);
+        }
         settings.follow_screen(cx);
         settings
     }
@@ -1222,6 +1246,7 @@ impl Settings {
         }
         if self.screen.is_page("style") {
             self.wallpapers.current = wallpaper::current(None);
+            self.read_cursors(cx);
         }
         if self.screen.is_page("monitor") {
             self.read_monitor_wallpaper();
@@ -1552,6 +1577,7 @@ impl Settings {
                 Content::Location => self.location_page(layer, cx),
                 Content::Bluetooth => self.bluetooth_page(layer, cx),
                 Content::Battery => self.battery_page(layer, cx),
+                Content::Lights => self.lights_page(layer, cx),
                 Content::Display => self.display_page(layer, cx),
                 Content::OutputConfiguration => {
                     let mut parts = self.output_modes_page(width, layer, cx);
@@ -1600,7 +1626,19 @@ impl Settings {
     ) -> AnyElement {
         let scroll = self.scroll(screen);
         let parts = self.screen_parts(screen, layer, width, cx);
+        let this = cx.entity().downgrade();
         let content = div()
+            .cull_offscreen()
+            // A scroll shows the last frame moved, unless the top group
+            // moves with it.
+            .replay_scroll(move |_, _, cx| {
+                this.update(cx, |this, _| {
+                    let away = this.top_away.away();
+                    this.follow_scroll();
+                    this.top_away.away() != away
+                })
+                .unwrap_or(true)
+            })
             .id(screen.key())
             .size_full()
             .overflow_y_scroll()
@@ -1835,6 +1873,7 @@ impl Settings {
         bottom: f32,
     ) -> Stateful<Div> {
         div()
+            .cull_offscreen()
             .id(id)
             .flex_1()
             .min_h_0()
@@ -2013,6 +2052,46 @@ impl Render for Settings {
         if self.animating(now) {
             window.request_animation_frame();
         }
+        let root = self.render_root(window, now, cx);
+        if self.appeared.borrow_mut().finish_render() {
+            window.request_animation_frame();
+        }
+        root
+    }
+}
+
+/// Ids `appearing` built in this render and in the ones before it.
+#[derive(Default)]
+struct Appeared {
+    since: HashMap<gpui::ElementId, Instant>,
+    built: HashSet<gpui::ElementId>,
+    fading: bool,
+}
+
+impl Appeared {
+    /// How long ago `id` was first built, counting this render.
+    fn age(&mut self, id: gpui::ElementId, now: Instant) -> Duration {
+        let since = *self.since.entry(id.clone()).or_insert(now);
+        self.built.insert(id);
+        now.saturating_duration_since(since)
+    }
+
+    /// Forgets the ids this render did not build; true while one fades.
+    fn finish_render(&mut self) -> bool {
+        let built = std::mem::take(&mut self.built);
+        self.since.retain(|id, _| built.contains(id));
+        std::mem::take(&mut self.fading)
+    }
+}
+
+impl Settings {
+    fn render_root(
+        &mut self,
+        window: &mut Window,
+        now: Instant,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let viewport = window.viewport_size();
         let width = f32::from(viewport.width);
         self.wide = width >= SIDEBAR_WIDTH + DETAIL_MIN_WIDTH;
         let root = div()

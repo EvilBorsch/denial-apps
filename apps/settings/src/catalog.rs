@@ -39,6 +39,9 @@ pub enum Content {
     Bluetooth,
     /// The battery, through UPower.
     Battery,
+    /// The device's own lights, through Denial. Listed only where there
+    /// are some.
+    Lights,
     /// The display, through deniald.
     Display,
     OutputConfiguration,
@@ -117,8 +120,8 @@ pub enum Source {
     Range(&'static str, f32, f32),
     /// The media volume, through Denial.
     Volume,
-    /// Faint, showing the media volume: the phone has one volume for now.
-    SameAsVolume,
+    /// The modem call playback level, through Phonewave's callaudio.
+    CallVolume,
     /// Worked out by Settings by the item's key: the screen lock, the
     /// lock's delay, the accent, the wallpaper.
     Own,
@@ -127,7 +130,7 @@ pub enum Source {
 impl Source {
     /// Whether the row can be changed.
     pub fn changes(self) -> bool {
-        !matches!(self, Source::Fixed | Source::SameAsVolume)
+        !matches!(self, Source::Fixed)
     }
 }
 
@@ -372,6 +375,9 @@ pub static GROUPS: &[Group] = &[
                     section("Windows", &[
                         item("layout.windows", "Window layout", Kind::Segmented(&["Stacking", "Dwindle", "Scrolling", "Full screen"], 0))
                             .from(Source::Words("layout.windowLayout", &["stacking", "dwindle", "scrolling", "screens"])),
+                        item("layout.frames", "Show window frames", Kind::Toggle(false))
+                            .denial("layout.windowFrames")
+                            .only("layout.windows", &[0]),
                         item("layout.minimized", "Minimized windows", Kind::Segmented(&["On desktop", "Off-screen"], 1))
                             .from(Source::Words("layout.minimizedWindowPlacement", &["desktop", "offscreen"])),
                         // Square windows use the whole screen: no padding.
@@ -491,9 +497,6 @@ pub static GROUPS: &[Group] = &[
                             "layout.windowLayout",
                             &["stacking", "dwindle", "scrolling", "screens"],
                         )),
-                        item("monitor.corners", "Roundness", Kind::Slider(0.25)).from(
-                            Source::Range("appearance.monitorCornerRadiusScale", 0.0, 2.0),
-                        ),
                         item("monitor.wallpaper", "Wallpaper", Kind::Opens)
                             .icon(Icon::Photos)
                             .from(Source::Own),
@@ -509,11 +512,11 @@ pub static GROUPS: &[Group] = &[
                     section(
                         "Volume",
                         &[
-                            item("sound.media", "Media", Kind::Slider(0.5)).from(Source::Volume),
-                            item("sound.ring", "Ring", Kind::Slider(0.7))
-                                .from(Source::SameAsVolume),
-                            item("sound.alarm", "Alarms", Kind::Slider(0.8))
-                                .from(Source::SameAsVolume),
+                            item("sound.media", "Media", Kind::Slider(0.5))
+                                .detail("Apps, ringtones, alarms and other playback")
+                                .from(Source::Volume),
+                            item("sound.call", "In-call volume", Kind::Slider(0.0))
+                                .from(Source::CallVolume),
                         ],
                     ),
                     section(
@@ -629,6 +632,13 @@ pub static GROUPS: &[Group] = &[
                 content: Content::Battery,
             },
             Page {
+                id: "lights",
+                title: "Lights",
+                icon: Icon::Palette,
+                summary: "Colours, off with the screen",
+                content: Content::Lights,
+            },
+            Page {
                 id: "storage",
                 title: "Storage",
                 icon: Icon::Storage,
@@ -705,9 +715,15 @@ pub static GROUPS: &[Group] = &[
                                 "appearance.transparencyMode",
                                 &["glass", "blur", "off"],
                             )),
-                            item("style.corners", "Roundness", Kind::Slider(0.5))
-                                .detail("The shell's panels and cards")
-                                .from(Source::Range("appearance.cornerRadiusScale", 0.0, 2.0)),
+                            item("style.windowCorners", "Window roundness", Kind::Slider(0.25))
+                                .from(Source::Range(
+                                    "appearance.windowCornerRadiusScale",
+                                    0.0,
+                                    2.0,
+                                )),
+                            item("style.corners", "Interface roundness", Kind::Slider(0.6)).from(
+                                Source::Range("appearance.interfaceCornerRadiusScale", 0.0, 2.0),
+                            ),
                         ],
                     ),
                     section(
@@ -887,7 +903,6 @@ pub static GROUPS: &[Group] = &[
                         &[
                             item("style.cursorTheme", "Cursor theme", Kind::Opens).from(Source::Own),
                             item("style.cursorImport", "Import cursor theme ZIP", Kind::Action("")).from(Source::Own),
-                            item("style.cursorRemove", "Remove imported cursor theme", Kind::Opens).from(Source::Own),
                             measured(
                                 "style.cursorSize", "Cursor size", "appearance.cursorSize",
                                 32.0, 16.0, 64.0, SliderUnit::Pixels,
@@ -1293,6 +1308,13 @@ pub fn set_wifi(present: bool) {
 /// it has looked.
 static MOBILE: AtomicBool = AtomicBool::new(true);
 
+static LIGHTS: AtomicBool = AtomicBool::new(false);
+
+/// Whether the device has lights of its own, for the Lights page.
+pub fn set_lights(present: bool) {
+    LIGHTS.store(present, Ordering::Relaxed);
+}
+
 pub fn set_mobile(present: bool) {
     MOBILE.store(present, Ordering::Relaxed);
 }
@@ -1307,6 +1329,7 @@ pub fn shown(page: &Page) -> bool {
         Content::Unavailable if page.id == "hotspot" => WIFI.load(Ordering::Relaxed),
         Content::Monitor(_) => MONITOR.load(Ordering::Relaxed),
         Content::Plugins => crate::plugins::command().is_some(),
+        Content::Lights => LIGHTS.load(Ordering::Relaxed),
         Content::Developer => DEVELOPER.load(Ordering::Relaxed),
         _ => true,
     }
@@ -1357,6 +1380,7 @@ pub fn items() -> impl Iterator<Item = (&'static Page, &'static Section, &'stati
             | Content::Location
             | Content::Bluetooth
             | Content::Battery
+            | Content::Lights
             | Content::Display
             | Content::Input
             | Content::Permissions
