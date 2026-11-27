@@ -399,7 +399,6 @@ pub static CHINESE: &[(&str, &str)] = &[
     ("Animation duration", "动画时长"),
     ("Card opacity", "卡片不透明度"),
     ("Notifications and tiles", "通知和磁贴"),
-    ("Window roundness", "窗口圆角"),
     ("Interface roundness", "界面圆角"),
     ("Clock size", "时钟大小"),
     ("Show system status", "显示系统状态"),

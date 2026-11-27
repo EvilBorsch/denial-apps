@@ -873,10 +873,6 @@ pub static GROUPS: &[Group] = &[
                             )
                             .detail("Off, square windows use the whole screen")
                             .denial("appearance.roundedWindowFrame"),
-                            // The shell's 0.5 of 0 to 2.
-                            item("style.windowCorners", "Window roundness", Kind::Slider(0.25))
-                                .from(Source::Range("appearance.windowCornerRadiusScale", 0.0, 2.0))
-                                .only("style.windowFrame", &[1]),
                             item(
                                 "style.focusBorder",
                                 "Focused-window border",
@@ -1475,7 +1471,7 @@ mod tests {
             Source::Denial("appearance.roundedWindowFrame")
         ));
         assert!(matches!(switch.kind, Kind::Toggle(false)));
-        for key in ["style.windowCorners", "style.focusBorder", "layout.maximizePadding"] {
+        for key in ["style.focusBorder", "layout.maximizePadding"] {
             let item = find(key).expect("listed");
             assert_eq!(item.only, Some(("style.windowFrame", &[1][..])), "{key}");
         }
@@ -1492,7 +1488,7 @@ mod tests {
         let shell = find("style.corners").expect("the shell's roundness is listed");
         assert!(matches!(
             shell.source,
-            Source::Range("appearance.cornerRadiusScale", _, _)
+            Source::Range("appearance.interfaceCornerRadiusScale", _, _)
         ));
         assert_eq!(shell.only, None);
     }

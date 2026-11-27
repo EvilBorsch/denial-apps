@@ -207,7 +207,8 @@ pub static RUSSIAN: &[(&str, &str)] = &[
     ("Wallpaper and style", "Обои и стиль"),
     ("Wallpaper, accent, glass", "Обои, акцентный цвет, стекло"),
     // Wallpaper and style: the shell's corners and the windows'.
-    ("Roundness", "Скругление"),
+    ("Interface roundness", "Скругление интерфейса"),
+    ("Show window frames", "Показывать рамки окон"),
     ("The shell's panels and cards", "Панели и карточки оболочки"),
     ("Window appearance", "Вид окон"),
     ("Rounded window corners and border", "Скруглённые углы и рамка окон"),
